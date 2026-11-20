@@ -37,6 +37,7 @@ API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
 MAX_APK_BYTES = 200 * 1024 * 1024
 MAX_LISTING_BYTES = 8 * 1024 * 1024
+MAX_RELEASE_PAGES = 10  # of 100 releases each
 # Files of a fastlane listing that F-Droid uses; everything else is ignored.
 LISTING_FILE = re.compile(
     r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*/"
@@ -121,9 +122,15 @@ def fetch_app(app, keep, repo_dir, tmp):
         fail(f"{app_id}: bad github repository {github!r}")
     pattern = re.compile(app["assets"])
 
-    releases = [r for r in api(f"/repos/{github}/releases?per_page=30")
-                if not r["draft"] and not r["prerelease"]
-                and any(pattern.search(a["name"]) for a in r["assets"])][:keep]
+    releases = []
+    for page in range(1, MAX_RELEASE_PAGES + 1):
+        batch = api(f"/repos/{github}/releases?per_page=100&page={page}")
+        releases += [r for r in batch
+                     if not r["draft"] and not r["prerelease"]
+                     and any(pattern.search(a["name"]) for a in r["assets"])]
+        if len(releases) >= keep or len(batch) < 100:
+            break
+    releases = releases[:keep]
     if not releases:
         fail(f"{app_id}: no published release with matching assets")
 
@@ -142,9 +149,11 @@ def fetch_app(app, keep, repo_dir, tmp):
             if actual != expected:
                 fail(f"{app_id} {name}: SHA-256 {actual}, GitHub reports {expected}")
             version_code = check_apk(tmp_path, app_id, signer)
-            dest = os.path.join(repo_dir, name)
+            # Releases may reuse an asset name (app-release.apk), so the
+            # repo file name also has the app id and versionCode.
+            dest = os.path.join(repo_dir, f"{app_id}_{version_code}_{name}")
             if os.path.exists(dest):
-                fail(f"{name} exists twice")
+                fail(f"{app_id} {name}: versionCode {version_code} exists twice")
             shutil.move(tmp_path, dest)
             print(f"{app_id} {release['tag_name']}: {name} "
                   f"(versionCode {version_code}) verified", file=sys.stderr)
