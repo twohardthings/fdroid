@@ -13,6 +13,10 @@ repo_description: >-
 # there is no archive.
 archive_older: 0
 
+# The repo's logo, shown by F-Droid clients in the repo list. fdroidserver
+# copies it to repo/icons/ (without it, clients show a QR code placeholder).
+repo_icon: icon.png
+
 keystore: keystore.p12
 repo_keyalias: repo
 keystorepass:

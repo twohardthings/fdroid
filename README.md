@@ -40,6 +40,12 @@ fingerprint is also in [fingerprint.txt](fingerprint.txt).
   ([requirements.txt](requirements.txt)), and the GitHub Actions are pinned to
   commit SHAs. The workflow never runs for pull requests.
 
+## Logo
+
+[icon.png](icon.png) is the repo's logo, which F-Droid clients show in their
+repo list and the landing page shows at the top. To change it, replace the
+file with another square PNG (at least 256×256).
+
 ## Publishing
 
 [The publish workflow](.github/workflows/publish.yml) rebuilds the whole repo
