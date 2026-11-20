@@ -1,0 +1,13 @@
+Categories:
+  - Time
+License: Apache-2.0
+AuthorName: Two Hard Things
+SourceCode: https://github.com/twohardthings/timecopfork
+IssueTracker: https://github.com/twohardthings/timecopfork/issues
+Changelog: https://github.com/twohardthings/timecopfork/blob/HEAD/CHANGELOG.md
+
+AutoName: Time Cop Fork
+
+# fdroidserver rejects any APK not signed by this certificate (SHA-256,
+# lowercase hex). Keep it equal to `signer` in apps.yml.
+AllowedAPKSigningKeys: a8d7bb608b23f07fc06e45cb1ff6bd0725fcc991b1e4800bed8454ab85a76933

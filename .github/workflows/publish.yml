@@ -1,0 +1,138 @@
+name: Publish F-Droid repo
+
+# Rebuilds the whole repo from the apps' GitHub Releases and deploys it to
+# GitHub Pages. Runs when apps.yml, metadata or this workflow change, daily,
+# and when an app's release workflow triggers it (workflow_dispatch).
+# Nothing here runs for pull requests, so the signing key is never available
+# to code from a pull request.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a newer run replaces a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The signing secrets live in this environment, which allows only the
+    # main branch (Settings > Environments > fdroid-signing), so a workflow
+    # pushed to another branch can't read them.
+    environment: fdroid-signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+
+      # Every package is pinned by hash (requirements.txt is generated from
+      # requirements.in with pip-compile --generate-hashes).
+      - name: Install fdroidserver
+        run: pip install --require-hashes --no-deps -r requirements.txt
+
+      - name: Download and verify the apps' releases
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -I scripts/fetch_releases.py apps.yml
+
+      # The keystore exists only for the next steps and is deleted at the end
+      # of the job. Its certificate must match the fingerprint committed in
+      # fingerprint.txt, so a replaced secret can't sign the repo.
+      - name: Restore the repo signing key
+        env:
+          FDROID_KEYSTORE: ${{ secrets.FDROID_KEYSTORE }}
+          FDROID_KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE_PASS }}
+        run: |
+          if [ -z "$FDROID_KEYSTORE" ] || [ -z "$FDROID_KEYSTORE_PASS" ]; then
+            echo "::error::The FDROID_KEYSTORE and FDROID_KEYSTORE_PASS secrets are required (see README)."
+            exit 1
+          fi
+          if [ ! -s fingerprint.txt ]; then
+            echo "::error::fingerprint.txt is missing: commit the repo key's SHA-256 fingerprint (see README)."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$FDROID_KEYSTORE" | base64 -d > keystore.p12
+          chmod 600 config.yml
+          actual=$(keytool -exportcert -keystore keystore.p12 -storetype PKCS12 \
+            -alias repo -storepass:env FDROID_KEYSTORE_PASS | sha256sum | cut -c1-64)
+          expected=$(tr -d ' :\n' < fingerprint.txt | tr 'A-F' 'a-f')
+          echo "Repo signing key fingerprint: $actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::The keystore's fingerprint $actual doesn't match fingerprint.txt ($expected)."
+            exit 1
+          fi
+
+      - name: Build and sign the index
+        env:
+          FDROID_KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE_PASS }}
+        run: fdroid update --pretty --use-date-from-apk
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f keystore.p12
+
+      # fdroidserver leaves APKs it rejects (for example a key not in
+      # AllowedAPKSigningKeys) in repo/ with only a warning. Publish only if
+      # every APK there made it into the index.
+      - name: Check that every APK is in the index
+        run: |
+          python -I - <<'EOF'
+          import json, os, sys
+          index = json.load(open("repo/index-v2.json"))
+          listed = {v["file"]["name"].lstrip("/")
+                    for p in index["packages"].values()
+                    for v in p["versions"].values()}
+          files = {f for f in os.listdir("repo") if f.endswith(".apk")}
+          missing = sorted(files - listed)
+          if missing:
+              sys.exit(f"not in the index: {missing}")
+          print(f"{len(files)} APKs, all in the index")
+          EOF
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r repo site/repo
+          cp fingerprint.txt site/
+          fp=$(tr -d ' :\n' < fingerprint.txt | tr 'a-f' 'A-F')
+          url=$(python -I -c "import yaml; print(yaml.safe_load(open('config.yml'))['repo_url'])")
+          add="fdroidrepos://${url#https://}?fingerprint=$fp"
+          sed -e "s|@REPO_URL@|$url|g" -e "s|@FINGERPRINT@|$fp|g" -e "s|@ADD_URL@|$add|g" \
+            site.html > site/index.html
+          {
+            echo "### F-Droid repo"
+            echo
+            echo "Address: $url?fingerprint=$fp"
+            echo
+            jq -r '.packages | to_entries[] | "- \(.key): " + ([.value.versions[].manifest.versionName] | unique | join(", "))' repo/index-v2.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

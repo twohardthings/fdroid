@@ -1,0 +1,28 @@
+# Apps published in this F-Droid repo.
+#
+# Each app is built and signed in its own GitHub repository. The publish
+# workflow downloads the APKs from that repository's GitHub Releases and adds
+# them only if:
+#   - the file matches the SHA-256 digest GitHub reports for the asset,
+#   - the APK's package name is `id`, and
+#   - the APK is signed by exactly the certificate pinned in `signer`.
+# Anything else fails the run, and the published repo stays as it was.
+#
+# To add an app: add an entry here and a metadata/<id>.yml file. The `signer`
+# is the SHA-256 of the app's signing certificate: lowercase hex, no colons
+# (`apksigner verify --print-certs app.apk`, "certificate SHA-256 digest").
+# Repeat it in AllowedAPKSigningKeys in metadata/<id>.yml, which makes
+# fdroidserver check it a second time.
+
+# How many of each app's latest releases to keep in the repo.
+keep_releases: 3
+
+apps:
+  - id: io.github.twohardthings.timecopfork
+    github: twohardthings/timecopfork
+    signer: a8d7bb608b23f07fc06e45cb1ff6bd0725fcc991b1e4800bed8454ab85a76933
+    # Release assets to publish (a regular expression on the file name).
+    assets: '^timecopfork-.*\.apk$'
+    # Store listing (title, descriptions, changelogs, icon, screenshots) in
+    # the app's repository, read at the release's tag.
+    fastlane: fastlane/metadata/android
