@@ -130,6 +130,9 @@ def fetch_app(app, keep, repo_dir, tmp):
                      and any(pattern.search(a["name"]) for a in r["assets"])]
         if len(releases) >= keep or len(batch) < 100:
             break
+    else:
+        fail(f"{app_id}: only {len(releases)} of {keep} releases found in the "
+             f"first {MAX_RELEASE_PAGES * 100}; raise MAX_RELEASE_PAGES")
     releases = releases[:keep]
     if not releases:
         fail(f"{app_id}: no published release with matching assets")
